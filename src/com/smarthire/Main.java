@@ -79,21 +79,20 @@ public class Main {
     }
 
     private static void wireUp() {
-        CryptoUtil crypto = new CryptoUtil(DATA_DIR);
-        userRepository = new UserRepository(DATA_DIR, crypto);
-        jobRepository = new JobRepository(DATA_DIR, crypto);
-        applicationRepository = new ApplicationRepository(DATA_DIR, crypto);
-        interviewRepository = new InterviewRepository(DATA_DIR, crypto);
-        statusHistoryRepository = new StatusHistoryRepository(DATA_DIR, crypto);
-
+        AppContext context = new AppContext(DATA_DIR);
+        userRepository = context.users();
+        jobRepository = context.jobs();
+        applicationRepository = context.applications();
+        interviewRepository = context.interviews();
+        statusHistoryRepository = context.statusHistory();
+        authService = context.auth();
+        jobService = context.jobService();
+        applicationService = context.applicationService();
+        interviewService = context.interviewService();
+        dashboardService = context.dashboardService();
+        exportService = context.exportService();
+        auditLogger = context.auditLogger();
         scoringService = new ScoringService();
-        authService = new AuthService(userRepository);
-        jobService = new JobService(jobRepository);
-        applicationService = new ApplicationService(applicationRepository, jobRepository, statusHistoryRepository, scoringService);
-        interviewService = new InterviewService(interviewRepository, applicationRepository, jobRepository, statusHistoryRepository);
-        dashboardService = new DashboardService(jobRepository, applicationRepository, interviewRepository, statusHistoryRepository);
-        exportService = new ExportService(DATA_DIR);
-        auditLogger = new AuditLogger(DATA_DIR);
     }
 
     /** Creates a default admin account on first run so the app is usable immediately. */
