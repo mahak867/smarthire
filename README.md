@@ -1,6 +1,6 @@
-# SmartHire — Console Edition
+# SmartHire — Console + Desktop GUI
 
-A terminal-based Recruitment Management System written in **pure core Java**
+A Recruitment Management System written in **core Java** with both a terminal interface and a Swing desktop GUI
 (only `java.util`, `java.io`, `java.nio.file`, `java.security`, `java.time`
 — no Spring, no database driver, no external libraries).
 
@@ -49,27 +49,41 @@ needing any server or install step.
   skill profile) used to leave the in-memory session holding the old
   data — a second change in the same session could act on stale state.
   The session now refreshes immediately after either update.
+- **Desktop GUI.** A Swing interface reuses the existing services and
+  encrypted file-backed data. It includes login and registration,
+  role-specific dashboards, candidate job search and applications,
+  recruiter/admin job management, and applicant status updates.
 
 ## How to compile and run
 
-Requires JDK 8+ (any version). No build tool needed.
+Requires JDK 11+ and no build tool.
 
 ```bash
-# from the project root (where the src/ folder is)
-find src -name "*.java" > sources.txt
+# from the project root; src/com contains the application and self-test runner
+find src/com -name "*.java" > sources.txt
 javac -d out @sources.txt
 java -cp out com.smarthire.Main
 ```
 
 On Windows (cmd):
 ```
-dir /s /b src\*.java > sources.txt
+dir /s /b src\com\*.java > sources.txt
 javac -d out @sources.txt
 java -cp out com.smarthire.Main
 ```
 
+Launch the desktop GUI (after compiling):
+```bash
+java -cp out com.smarthire.gui.SmartHireGui
+```
+
+The GUI and console share `smarthire_data/`. Avoid running both at once
+while changing data because each process loads the file-backed repositories
+into memory at startup.
+
 The app creates a `smarthire_data/` folder next to wherever you run it,
-containing `users.txt`, `jobs.txt`, `applications.txt`, `interviews.txt`.
+containing encrypted data files (`users.dat`, `jobs.dat`, `applications.dat`,
+and `interviews.dat`) plus its encryption key and audit log.
 Delete that folder to reset the app to a clean state.
 
 On first run it seeds a default admin account:
