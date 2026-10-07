@@ -8,6 +8,12 @@ import com.smarthire.util.CryptoUtil;
 import com.smarthire.util.Sorter;
 
 import java.time.LocalDate;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 import java.util.*;
 
 /**
@@ -45,6 +51,8 @@ public class SelfTestRunner {
         testJobEditPermissions();
         testCsvDelimiterSafety();
         testShortlistRejectsNonPositiveCount();
+        testResumeUploadEncryptionAndValidation();
+        testJobCsvImportExportRoundTrip();
 
         System.out.println("\n" + passed + " passed, " + failed + " failed.");
         if (failed > 0) System.exit(1);
@@ -308,6 +316,108 @@ public class SelfTestRunner {
 
             assert rejectedZero : "Shortlisting 0 should be a clean validation error, not a silent no-op";
             assert rejectedNegative : "A negative count used to reach Stream.limit(negative) and end the whole session";
+        });
+    }
+
+    private static void testResumeUploadEncryptionAndValidation() {
+        run("Resume upload validation + encrypted persistence", () -> {
+            String data = "self_test_data/resume";
+            wipe(data);
+            CryptoUtil crypto = new CryptoUtil(data);
+            UserRepository users = new UserRepository(data, crypto);
+            ApplicationRepository applications = new ApplicationRepository(data, crypto);
+            JobRepository jobRepository = new JobRepository(data, crypto);
+            AuthService auth = new AuthService(users);
+            ResumeService resumes = new ResumeService(data, crypto, applications, jobRepository);
+            User candidate = auth.register("Resume Candidate", "resume.candidate@example.com", "password1", UserRole.CANDIDATE);
+            User recruiter = auth.register("Resume Recruiter", "resume.recruiter@example.com", "password1", UserRole.RECRUITER);
+            User otherRecruiter = auth.register("Other Recruiter", "resume.other@example.com", "password1", UserRole.RECRUITER);
+            Path pdf = Paths.get(data, "Taylor Morgan Resume.PDF");
+            byte[] pdfBytes = "%PDF-1.7\nCandidate resume fixture".getBytes(StandardCharsets.ISO_8859_1);
+            Files.write(pdf, pdfBytes);
+
+            assert resumes.upload(candidate, pdf).equals("Taylor Morgan Resume.PDF") : "Original resume name should be retained";
+            assert resumes.hasResume(candidate.getId()) : "Candidate upload should be available";
+            ResumeService.ResumeDocument pdfFromDisk = resumes.loadOwn(candidate);
+            assert pdfFromDisk.getFileName().equals("Taylor Morgan Resume.PDF") : "PDF metadata should persist";
+            assert Arrays.equals(pdfBytes, pdfFromDisk.getContent()) : "PDF bytes should round-trip exactly";
+            byte[] encrypted = Files.readAllBytes(Paths.get(data, "resumes", "candidate_" + candidate.getId() + ".resume.dat"));
+            assert !new String(encrypted, StandardCharsets.ISO_8859_1).contains("%PDF-") : "Resume content must be encrypted at rest";
+
+            Path docx = Paths.get(data, "resume.docx");
+            try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(docx))) {
+                zip.putNextEntry(new ZipEntry("[Content_Types].xml"));
+                zip.write("<Types/>".getBytes(StandardCharsets.UTF_8)); zip.closeEntry();
+                zip.putNextEntry(new ZipEntry("word/document.xml"));
+                zip.write("<document/>".getBytes(StandardCharsets.UTF_8)); zip.closeEntry();
+            }
+            resumes.upload(candidate, docx);
+            assert resumes.loadOwn(candidate).getFileName().equals("resume.docx") : "DOCX upload should replace the previous resume";
+
+            boolean invalidContentRejected = false;
+            Path fakePdf = Paths.get(data, "fake.pdf"); Files.write(fakePdf, "not a PDF".getBytes(StandardCharsets.UTF_8));
+            try { resumes.upload(candidate, fakePdf); } catch (SmartHireException e) { invalidContentRejected = true; }
+            assert invalidContentRejected : "A renamed non-PDF file must be rejected";
+
+            JobService jobs = new JobService(jobRepository);
+            Job job = jobs.postJob(recruiter, "Resume review role", "desc", "eng", Arrays.asList("Java"), EmploymentType.FULL_TIME);
+            ApplicationService applicationService = new ApplicationService(applications, jobRepository,
+                    new StatusHistoryRepository(data, crypto), new ScoringService());
+            JobApplication application = applicationService.apply(candidate, job.getId(), Arrays.asList("Java"), "Application with resume");
+            assert resumes.loadForApplication(recruiter, application.getId()).getFileName().equals("resume.docx")
+                    : "The recruiter owning a job should retrieve an applicant resume";
+            boolean otherRecruiterRejected = false;
+            try { resumes.loadForApplication(otherRecruiter, application.getId()); } catch (SmartHireException e) { otherRecruiterRejected = true; }
+            assert otherRecruiterRejected : "A different recruiter must not retrieve the resume for another recruiter's job";
+        });
+    }
+
+    private static void testJobCsvImportExportRoundTrip() {
+        run("Job CSV import/export round trip", () -> {
+            String data = "self_test_data/jobcsv";
+            String secondData = "self_test_data/jobcsv_roundtrip";
+            wipe(data); wipe(secondData);
+            CryptoUtil crypto = new CryptoUtil(data);
+            UserRepository users = new UserRepository(data, crypto);
+            JobRepository jobs = new JobRepository(data, crypto);
+            User recruiter = new AuthService(users).register("CSV Recruiter", "csv.recruiter@example.com", "password1", UserRole.RECRUITER);
+            JobService jobService = new JobService(jobs);
+            JobCsvService csv = new JobCsvService(jobService);
+            Path importFile = Paths.get(data, "import.csv"); Files.createDirectories(importFile.getParent());
+            String source = "\uFEFFTitle,Department,Description,Required Skills,Employment Type\r\n"
+                    + "\"Platform, Engineer\",\"R&D\",\"Build \"\"fast\"\" tools\nfor APIs\",\"Java; SQL\",Full Time\r\n"
+                    + "\"=SUM(1,1)\",Operations,Safe,Excel,CONTRACT\r\n";
+            Files.write(importFile, source.getBytes(StandardCharsets.UTF_8));
+
+            assert csv.importCsv(recruiter, importFile) == 2 : "Both valid rows should import";
+            List<Job> imported = jobService.listByRecruiter(recruiter.getId());
+            assert imported.get(0).getTitle().equals("Platform, Engineer") : "Quoted comma in title should parse";
+            assert imported.get(0).getDescription().contains("\n") : "Quoted multiline descriptions should parse; got: " + imported.get(0).getDescription().replace("\n", "<LF>");
+            assert imported.get(0).getRequiredSkills().equals(Arrays.asList("Java", "SQL")) : "Semicolon-separated skills should parse";
+            assert imported.get(0).getEmploymentType() == EmploymentType.FULL_TIME : "Human-readable employment type should normalize";
+
+            Path exported = Paths.get(data, "export.csv"); csv.exportCsv(imported, exported);
+            String exportText = new String(Files.readAllBytes(exported), StandardCharsets.UTF_8);
+            assert exportText.startsWith("\uFEFF\"Title\"") : "CSV export should include Excel-friendly UTF-8 BOM and header";
+            assert exportText.contains("\"'=SUM(1,1)\"") : "Formula-leading values should be escaped for spreadsheet safety";
+
+            CryptoUtil secondCrypto = new CryptoUtil(secondData);
+            User secondRecruiter = new AuthService(new UserRepository(secondData, secondCrypto)).register("Second Recruiter", "csv.second@example.com", "password1", UserRole.RECRUITER);
+            JobRepository secondJobs = new JobRepository(secondData, secondCrypto);
+            JobService secondJobService = new JobService(secondJobs);
+            JobCsvService roundTrip = new JobCsvService(secondJobService);
+            assert roundTrip.importCsv(secondRecruiter, exported) == 2 : "Exported CSV should import again";
+            List<Job> roundTripped = secondJobService.listByRecruiter(secondRecruiter.getId());
+            assert roundTripped.size() == 2 : "Both exported rows should be present after a round trip";
+            assert roundTripped.get(1).getTitle().equals("=SUM(1,1)") : "Spreadsheet safety prefix should not alter the actual imported job title";
+
+            Path invalid = Paths.get(data, "invalid.csv");
+            Files.write(invalid, "Title,Employment Type\nValid,Full Time\nBroken,UNKNOWN\n".getBytes(StandardCharsets.UTF_8));
+            int before = jobService.listAllJobs().size();
+            boolean invalidRowRejected = false;
+            try { csv.importCsv(recruiter, invalid); } catch (SmartHireException e) { invalidRowRejected = e.getMessage().contains("row 3"); }
+            assert invalidRowRejected : "Invalid rows should report their spreadsheet row number";
+            assert jobService.listAllJobs().size() == before : "An invalid import must not partially create jobs";
         });
     }
 
