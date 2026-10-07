@@ -27,6 +27,7 @@ import javax.swing.JTextField;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
+import javax.swing.plaf.basic.BasicButtonUI;
 import javax.swing.table.DefaultTableModel;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
@@ -450,18 +451,33 @@ public final class SmartHireGui extends JFrame {
     }
 
     private static JButton primaryButton(String text) {
-        JButton button = new JButton(text); button.setBackground(BLUE); button.setForeground(Color.WHITE); button.setFocusPainted(false);
+        JButton button = baseButton(text, BLUE, Color.WHITE);
+        button.setBorderPainted(false);
         button.setFont(new Font("SansSerif", Font.BOLD, 13)); button.setBorder(BorderFactory.createEmptyBorder(10, 15, 10, 15)); return button;
     }
 
     private static JButton secondaryButton(String text) {
-        JButton button = new JButton(text); button.setBackground(Color.WHITE); button.setForeground(NAVY); button.setFocusPainted(false);
+        JButton button = baseButton(text, Color.WHITE, NAVY);
         button.setFont(new Font("SansSerif", Font.BOLD, 12)); button.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(new Color(211, 219, 231)), BorderFactory.createEmptyBorder(8, 13, 8, 13))); return button;
     }
 
     private static JButton navButton(String text) {
-        JButton button = new JButton(text); button.setHorizontalAlignment(SwingConstants.LEFT); button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
-        button.setBackground(NAVY); button.setForeground(new Color(230, 237, 249)); button.setFocusPainted(false); button.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 10));
+        JButton button = baseButton(text, NAVY, new Color(230, 237, 249));
+        button.setHorizontalAlignment(SwingConstants.LEFT); button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
+        button.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 10));
         button.setFont(new Font("SansSerif", Font.PLAIN, 14)); return button;
+    }
+
+    /** Uses a predictable renderer so Windows native themes cannot make button labels blend into their fill. */
+    private static JButton baseButton(String text, Color background, Color foreground) {
+        JButton button = new JButton(text);
+        button.setUI(new BasicButtonUI());
+        button.setOpaque(true);
+        button.setContentAreaFilled(true);
+        button.setBackground(background);
+        button.setForeground(foreground);
+        button.setFocusPainted(false);
+        button.setRolloverEnabled(false);
+        return button;
     }
 }
