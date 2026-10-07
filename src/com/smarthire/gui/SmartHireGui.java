@@ -14,6 +14,7 @@ import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
+import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -36,6 +37,7 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridLayout;
+import java.awt.Toolkit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -314,16 +316,35 @@ public final class SmartHireGui extends JFrame {
         JTextField title = field("Job title"), department = field("Department"), skills = field("Java, communication");
         JTextArea description = new JTextArea(5, 30); description.setLineWrap(true); description.setWrapStyleWord(true);
         JComboBox<EmploymentType> type = new JComboBox<>(EmploymentType.values());
-        JPanel form = new JPanel(new GridLayout(0, 1, 0, 6));
-        form.add(new JLabel("Title")); form.add(title); form.add(new JLabel("Department")); form.add(department);
-        form.add(new JLabel("Description")); form.add(new JScrollPane(description)); form.add(new JLabel("Required skills (comma separated)")); form.add(skills);
-        form.add(new JLabel("Employment type")); form.add(type);
-        if (JOptionPane.showConfirmDialog(this, form, "Post a job", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return;
+        JPanel form = new JPanel(); form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
+        form.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
+        addLabeledField(form, "Title", title); addLabeledField(form, "Department", department);
+        addLabeledField(form, "Description", new JScrollPane(description));
+        addLabeledField(form, "Required skills (comma separated)", skills);
+        addLabeledField(form, "Employment type", type);
+        int screenHeight = Toolkit.getDefaultToolkit().getScreenSize().height;
+        int viewportHeight = Math.max(240, Math.min(340, screenHeight - 400));
+        JScrollPane formScroll = new JScrollPane(form, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        formScroll.setPreferredSize(new Dimension(460, viewportHeight));
+        formScroll.getVerticalScrollBar().setUnitIncrement(18);
+        if (JOptionPane.showConfirmDialog(this, formScroll, "Post a job", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return;
         safely(() -> {
             Job job = app.jobService().postJob(currentUser, title.getText().trim(), description.getText().trim(), department.getText().trim(), splitSkills(skills.getText()), (EmploymentType) type.getSelectedItem());
             app.auditLogger().log(currentUser.getEmail(), "POSTED job #" + job.getId() + " (GUI)");
             refreshJobs(""); JOptionPane.showMessageDialog(this, "Job posted successfully.", "Job posted", JOptionPane.INFORMATION_MESSAGE);
         });
+    }
+
+    private static void addLabeledField(JPanel form, String label, JComponent field) {
+        JLabel caption = new JLabel(label);
+        caption.setAlignmentX(Component.LEFT_ALIGNMENT);
+        field.setAlignmentX(Component.LEFT_ALIGNMENT);
+        Dimension preferred = field.getPreferredSize();
+        field.setMaximumSize(new Dimension(Integer.MAX_VALUE, preferred.height));
+        form.add(caption);
+        form.add(Box.createVerticalStrut(4));
+        form.add(field);
+        form.add(Box.createVerticalStrut(10));
     }
 
     private void toggleSelectedJob() {
