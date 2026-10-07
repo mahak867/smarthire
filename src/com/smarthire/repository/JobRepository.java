@@ -43,6 +43,17 @@ public class JobRepository {
         persist();
     }
 
+    /** Saves a group of new/updated jobs with one encrypted file rewrite. */
+    public void saveAll(List<Job> batch) {
+        if (batch == null || batch.isEmpty()) return;
+        Set<Integer> ids = new HashSet<>();
+        for (Job job : batch) ids.add(job.getId());
+        jobs.removeIf(existing -> ids.contains(existing.getId()));
+        jobs.addAll(batch);
+        for (Job job : batch) if (job.getId() >= nextId) nextId = job.getId() + 1;
+        persist();
+    }
+
     public Optional<Job> findById(int id) {
         return jobs.stream().filter(j -> j.getId() == id).findFirst();
     }

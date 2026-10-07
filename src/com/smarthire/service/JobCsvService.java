@@ -52,7 +52,7 @@ public final class JobCsvService {
             throw new SmartHireException("CSV needs at least these headers: Title, Employment Type. Use Export CSV to get a template.");
         }
 
-        List<JobDraft> drafts = new ArrayList<>();
+        List<JobService.JobDraft> drafts = new ArrayList<>();
         for (int i = 1; i < rows.size(); i++) {
             List<String> row = rows.get(i);
             if (isBlank(row)) continue;
@@ -79,14 +79,11 @@ public final class JobCsvService {
                     : new ArrayList<>(Arrays.asList(skillsText.split("[,;]")));
             for (int skill = 0; skill < skills.size(); skill++) skills.set(skill, skills.get(skill).trim());
             skills.removeIf(String::isEmpty);
-            drafts.add(new JobDraft(unprotectExcelText(title), description, department, skills, type));
+            drafts.add(new JobService.JobDraft(unprotectExcelText(title), description, department, skills, type));
         }
         if (drafts.isEmpty()) throw new SmartHireException("The CSV has no job rows to import.");
 
-        for (JobDraft draft : drafts) {
-            jobService.postJob(actor, draft.title, draft.description, draft.department, draft.skills, draft.type);
-        }
-        return drafts.size();
+        return jobService.postJobs(actor, drafts).size();
     }
 
     /** Writes postings as UTF-8 CSV with a BOM so Excel opens non-ASCII text correctly. */
@@ -206,17 +203,5 @@ public final class JobCsvService {
             row.add(field.toString()); rows.add(row);
         }
         return rows;
-    }
-
-    private static final class JobDraft {
-        private final String title;
-        private final String description;
-        private final String department;
-        private final List<String> skills;
-        private final EmploymentType type;
-
-        private JobDraft(String title, String description, String department, List<String> skills, EmploymentType type) {
-            this.title = title; this.description = description; this.department = department; this.skills = skills; this.type = type;
-        }
     }
 }

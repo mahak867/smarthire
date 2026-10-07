@@ -6,6 +6,8 @@ import com.smarthire.search.SearchEngine;
 import com.smarthire.util.Sorter;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -21,13 +23,27 @@ public class JobService {
 
     public Job postJob(User postedBy, String title, String description, String department,
                         List<String> requiredSkills, EmploymentType type) {
-        requireRecruiterOrAdmin(postedBy);
-        if (title == null || title.trim().isEmpty()) throw new SmartHireException("Title cannot be empty.");
+        return postJobs(postedBy, Collections.singletonList(new JobDraft(title, description, department, requiredSkills, type))).get(0);
+    }
 
-        Job job = new Job(jobRepository.nextId(), title, description, department, requiredSkills,
-                type, postedBy.getId(), JobStatus.OPEN, LocalDate.now());
-        jobRepository.save(job);
-        return job;
+    /** Creates a batch of jobs and persists them with one repository rewrite. */
+    public List<Job> postJobs(User postedBy, List<JobDraft> drafts) {
+        requireRecruiterOrAdmin(postedBy);
+        if (drafts == null || drafts.isEmpty()) return new ArrayList<>();
+        for (JobDraft draft : drafts) {
+            if (draft == null || draft.title == null || draft.title.trim().isEmpty()) {
+                throw new SmartHireException("Title cannot be empty.");
+            }
+            if (draft.type == null) throw new SmartHireException("Employment type is required.");
+        }
+
+        List<Job> created = new ArrayList<>();
+        for (JobDraft draft : drafts) {
+            created.add(new Job(jobRepository.nextId(), draft.title, draft.description, draft.department,
+                    draft.skills, draft.type, postedBy.getId(), JobStatus.OPEN, LocalDate.now()));
+        }
+        jobRepository.saveAll(created);
+        return created;
     }
 
     public void closeJob(User actor, int jobId) {
@@ -132,6 +148,22 @@ public class JobService {
     private void requireOwnerOrAdmin(User actor, int ownerId) {
         if (actor.getRole() != UserRole.ADMIN && actor.getId() != ownerId) {
             throw new SmartHireException("You do not have permission to modify this job.");
+        }
+    }
+
+    public static final class JobDraft {
+        private final String title;
+        private final String description;
+        private final String department;
+        private final List<String> skills;
+        private final EmploymentType type;
+
+        public JobDraft(String title, String description, String department, List<String> skills, EmploymentType type) {
+            this.title = title;
+            this.description = description;
+            this.department = department;
+            this.skills = skills == null ? new ArrayList<>() : new ArrayList<>(skills);
+            this.type = type;
         }
     }
 }
