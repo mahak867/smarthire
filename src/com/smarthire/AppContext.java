@@ -10,7 +10,9 @@ import com.smarthire.service.AuthService;
 import com.smarthire.service.DashboardService;
 import com.smarthire.service.ExportService;
 import com.smarthire.service.InterviewService;
+import com.smarthire.service.JobCsvService;
 import com.smarthire.service.JobService;
+import com.smarthire.service.ResumeService;
 import com.smarthire.service.ScoringService;
 import com.smarthire.util.AuditLogger;
 import com.smarthire.util.CryptoUtil;
@@ -31,6 +33,8 @@ public final class AppContext {
     private final InterviewService interviewService;
     private final DashboardService dashboardService;
     private final ExportService exportService;
+    private final JobCsvService jobCsvService;
+    private final ResumeService resumeService;
     private final AuditLogger auditLogger;
 
     public AppContext(String dataDir) {
@@ -44,6 +48,8 @@ public final class AppContext {
         ScoringService scoringService = new ScoringService();
         authService = new AuthService(userRepository);
         jobService = new JobService(jobRepository);
+        jobCsvService = new JobCsvService(jobService);
+        resumeService = new ResumeService(dataDir, crypto, applicationRepository, jobRepository);
         applicationService = new ApplicationService(applicationRepository, jobRepository,
                 statusHistoryRepository, scoringService);
         interviewService = new InterviewService(interviewRepository, applicationRepository,
@@ -65,5 +71,7 @@ public final class AppContext {
     public InterviewService interviewService() { return interviewService; }
     public DashboardService dashboardService() { return dashboardService; }
     public ExportService exportService() { return exportService; }
+    public JobCsvService jobCsvService() { return jobCsvService; }
+    public ResumeService resumeService() { return resumeService; }
     public AuditLogger auditLogger() { return auditLogger; }
 }

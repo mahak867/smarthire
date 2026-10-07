@@ -53,6 +53,16 @@ needing any server or install step.
   encrypted file-backed data. It includes login and registration,
   role-specific dashboards, candidate job search and applications,
   recruiter/admin job management, and applicant status updates.
+- **Resume attachments.** Candidates can upload PDF or DOCX resumes from
+  their profile (maximum 15 MB); recruiters can save a resume from an
+  application for one of their own jobs. Resume contents and filenames are
+  encrypted at rest with the app's AES-GCM key.
+- **Excel-friendly job exchange.** Recruiters/admins can import and export
+  UTF-8 CSV job postings from the jobs screen. CSV opens in Excel; imports
+  create new OPEN postings owned by the signed-in recruiter/admin. Columns:
+  Title, Department, Description, Required Skills, Employment Type; separate
+  multiple required skills with semicolons. Types: FULL_TIME, PART_TIME,
+  INTERNSHIP, CONTRACT.
 
 ## How to compile and run
 
@@ -83,7 +93,8 @@ into memory at startup.
 
 The app creates a `smarthire_data/` folder next to wherever you run it,
 containing encrypted data files (`users.dat`, `jobs.dat`, `applications.dat`,
-and `interviews.dat`) plus its encryption key and audit log.
+and `interviews.dat`), encrypted resume attachments under `resumes/`, plus
+its encryption key and audit log.
 Delete that folder to reset the app to a clean state.
 
 On first run it seeds a default admin account:
@@ -134,8 +145,9 @@ generic version of this brief. These push it further while staying inside
    password hashing, scoring, sorting, search relevance, the full
    apply→hire workflow, the encryption round-trip, skill-profile
    persistence across a reload, job-edit permission checks, CSV
-   delimiter-injection safety, and the shortlist non-positive-count
-   guard (10 tests total). Run it with:
+   delimiter-injection safety, the shortlist non-positive-count guard,
+   encrypted PDF/DOCX resume upload validation, and job CSV import/export
+   round-tripping (12 tests total). Run it with:
    ```bash
    java -ea -cp out com.smarthire.test.SelfTestRunner
    ```
@@ -157,11 +169,17 @@ generic version of this brief. These push it further while staying inside
 - **Candidate skill profiles**: candidates can save a skill list once and
   reuse it everywhere skills are asked for (apply, skill-gap check,
   recommendations), with the option to override or update it per action.
+- **Resume uploads**: candidates can attach one PDF or DOCX resume to their
+  profile (up to 15 MB); a new upload replaces the previous file. Recruiters
+  can save the resume from an applicant row for jobs they own. Files are
+  encrypted locally and are never uploaded to a remote service.
 - **Encrypted storage**: all data files are AES-128-GCM encrypted at rest
   (see point 4 above).
 - **Jobs**: recruiters post jobs with title, description, department,
   required skills and employment type; can edit any of those fields later,
-  and close/reopen the posting. Job listings show a live applicant count.
+  close/reopen postings, and import/export postings as Excel-compatible
+  UTF-8 CSV. Import columns: Title, Department, Description, Required Skills,
+  Employment Type. New imported jobs start OPEN.
 - **Search & recommendations**: substring search, ranked TF-IDF search, a
   skill-gap check before applying, and personalized "jobs you might like".
 - **Applications**: candidates apply with a skills list and cover letter.
@@ -207,7 +225,9 @@ src/com/smarthire/
 │   ├── ScoringService            #   resume-vs-job keyword match + skill gap
 │   ├── InterviewService           #   schedule/complete interviews
 │   ├── DashboardService            #   funnel + time-to-hire analytics
-│   └── ExportService                #   writes report .txt files
+│   ├── ExportService                #   writes report .txt files
+│   ├── JobCsvService                 #   Excel-compatible job CSV exchange
+│   └── ResumeService                  #   encrypted PDF/DOCX attachments
 ├── session/                # holds the logged-in user for this run
 ├── test/                   # SelfTestRunner.java - assert-based self-tests
 └── util/                   # PasswordUtil (hashing), CryptoUtil (AES-GCM

@@ -8,6 +8,7 @@ import com.smarthire.model.JobApplication;
 import com.smarthire.model.JobStatus;
 import com.smarthire.model.User;
 import com.smarthire.model.UserRole;
+import com.smarthire.service.ResumeService;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -16,6 +17,7 @@ import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
+import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -28,6 +30,7 @@ import javax.swing.JTextField;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.plaf.basic.BasicButtonUI;
 import javax.swing.table.DefaultTableModel;
 import java.awt.BorderLayout;
@@ -38,6 +41,9 @@ import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridLayout;
 import java.awt.Toolkit;
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -271,8 +277,12 @@ public final class SmartHireGui extends JFrame {
         } else {
             JButton create = primaryButton("Post a job"); actions.add(Box.createHorizontalStrut(10)); actions.add(create);
             JButton toggle = secondaryButton("Close / reopen selected"); actions.add(Box.createHorizontalStrut(10)); actions.add(toggle);
+            JButton importCsv = secondaryButton("Import jobs CSV"); actions.add(Box.createHorizontalStrut(10)); actions.add(importCsv);
+            JButton exportCsv = secondaryButton("Export jobs CSV"); actions.add(Box.createHorizontalStrut(10)); actions.add(exportCsv);
             create.addActionListener(e -> createJob());
             toggle.addActionListener(e -> safely(() -> toggleSelectedJob()));
+            importCsv.addActionListener(e -> safely(() -> importJobsCsv(search.getText())));
+            exportCsv.addActionListener(e -> safely(() -> exportJobsCsv()));
         }
         refresh.addActionListener(e -> refreshJobs(search.getText()));
         find.addActionListener(e -> refreshJobs(search.getText()));
@@ -293,6 +303,40 @@ public final class SmartHireGui extends JFrame {
         };
         for (Job job : displayedJobs) model.addRow(new Object[]{job.getId(), job.getTitle(), job.getDepartment(), job.getEmploymentType(), job.getStatus(), String.join(", ", job.getRequiredSkills()), job.getPostedDate()});
         jobsTable.setModel(model);
+    }
+
+    private void importJobsCsv(String searchQuery) {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Import job postings from CSV");
+        chooser.setAcceptAllFileFilterUsed(false);
+        chooser.setFileFilter(new FileNameExtensionFilter("CSV file (Excel: CSV UTF-8)", "csv"));
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        int imported = app.jobCsvService().importCsv(currentUser, chooser.getSelectedFile().toPath());
+        app.auditLogger().log(currentUser.getEmail(), "IMPORTED " + imported + " job posting(s) from CSV (GUI)");
+        refreshJobs(searchQuery);
+        JOptionPane.showMessageDialog(this, imported + " job posting(s) imported as OPEN.", "Import complete", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void exportJobsCsv() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Export job postings to CSV");
+        chooser.setSelectedFile(new File("smarthire-jobs.csv"));
+        chooser.setAcceptAllFileFilterUsed(false);
+        chooser.setFileFilter(new FileNameExtensionFilter("CSV file (Excel-compatible)", "csv"));
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        File selected = withExtension(chooser.getSelectedFile(), ".csv");
+        if (selected.exists() && JOptionPane.showConfirmDialog(this, "Replace " + selected.getName() + "?", "Confirm overwrite", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+        List<Job> jobs = currentUser.getRole() == UserRole.ADMIN
+                ? app.jobService().listAllJobs()
+                : app.jobService().listByRecruiter(currentUser.getId());
+        app.jobCsvService().exportCsv(jobs, selected.toPath());
+        app.auditLogger().log(currentUser.getEmail(), "EXPORTED " + jobs.size() + " job posting(s) to CSV (GUI)");
+        JOptionPane.showMessageDialog(this, "CSV exported to:\n" + selected.getAbsolutePath(), "Export complete", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private static File withExtension(File file, String extension) {
+        if (file.getName().toLowerCase(java.util.Locale.ROOT).endsWith(extension)) return file;
+        return new File(file.getParentFile(), file.getName() + extension);
     }
 
     private void applyToSelectedJob() {
@@ -368,7 +412,8 @@ public final class SmartHireGui extends JFrame {
             JComboBox<ApplicationStatus> status = new JComboBox<>(ApplicationStatus.values());
             JButton update = primaryButton("Update selected status");
             JButton shortlist = secondaryButton("Shortlist top 5 for selected job");
-            actions.add(Box.createHorizontalStrut(10)); actions.add(status); actions.add(Box.createHorizontalStrut(8)); actions.add(update); actions.add(Box.createHorizontalStrut(8)); actions.add(shortlist);
+            JButton saveResume = secondaryButton("Save selected resume");
+            actions.add(Box.createHorizontalStrut(10)); actions.add(status); actions.add(Box.createHorizontalStrut(8)); actions.add(update); actions.add(Box.createHorizontalStrut(8)); actions.add(shortlist); actions.add(Box.createHorizontalStrut(8)); actions.add(saveResume);
             update.addActionListener(e -> safely(() -> {
                 int row = applicationsTable.getSelectedRow(); if (row < 0) throw new IllegalArgumentException("Select an application first.");
                 JobApplication item = displayedApplications.get(applicationsTable.convertRowIndexToModel(row));
@@ -383,6 +428,7 @@ public final class SmartHireGui extends JFrame {
                 app.auditLogger().log(currentUser.getEmail(), "SHORTLISTED top 5 for job #" + item.getJobId() + " (GUI)");
                 refreshApplications(); JOptionPane.showMessageDialog(this, shortlisted.size() + " candidate(s) shortlisted.");
             }));
+            saveResume.addActionListener(e -> safely(() -> saveSelectedApplicantResume()));
         }
         refresh.addActionListener(e -> refreshApplications());
         panel.add(actions, BorderLayout.SOUTH); refreshApplications(); return panel;
@@ -422,7 +468,49 @@ public final class SmartHireGui extends JFrame {
             app.auditLogger().log(currentUser.getEmail(), "UPDATED candidate skill profile (GUI)");
             JOptionPane.showMessageDialog(this, "Skill profile saved.", "Profile updated", JOptionPane.INFORMATION_MESSAGE);
         }));
+        if (currentUser.getRole() == UserRole.CANDIDATE) {
+            JLabel resumeStatus = new JLabel(app.resumeService().fileName(currentUser.getId())
+                    .map(fileName -> "Current resume: " + fileName)
+                    .orElse("No resume uploaded yet."));
+            JButton upload = secondaryButton("Upload / replace resume (PDF/DOCX, max 15 MB)");
+            card.add(new JLabel("Resume attachment")); card.add(resumeStatus); card.add(upload);
+            upload.addActionListener(e -> safely(() -> {
+                JFileChooser chooser = new JFileChooser();
+                chooser.setDialogTitle("Choose your resume");
+                chooser.setAcceptAllFileFilterUsed(false);
+                chooser.setFileFilter(new FileNameExtensionFilter("PDF or Word document (*.pdf, *.docx)", "pdf", "docx"));
+                if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+                String savedName = app.resumeService().upload(currentUser, chooser.getSelectedFile().toPath());
+                resumeStatus.setText("Current resume: " + savedName);
+                app.auditLogger().log(currentUser.getEmail(), "UPLOADED/REPLACED candidate resume (GUI)");
+                JOptionPane.showMessageDialog(this, "Resume uploaded and encrypted in local storage.", "Resume saved", JOptionPane.INFORMATION_MESSAGE);
+            }));
+        }
         panel.add(card, BorderLayout.NORTH); return panel;
+    }
+
+    private void saveSelectedApplicantResume() {
+        int row = applicationsTable.getSelectedRow();
+        if (row < 0) throw new IllegalArgumentException("Select an applicant first.");
+        JobApplication application = displayedApplications.get(applicationsTable.convertRowIndexToModel(row));
+        ResumeService.ResumeDocument resume = app.resumeService().loadForApplication(currentUser, application.getId());
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Save applicant resume");
+        chooser.setSelectedFile(new File(resume.getFileName()));
+        String name = resume.getFileName().toLowerCase(java.util.Locale.ROOT);
+        chooser.setFileFilter(name.endsWith(".pdf")
+                ? new FileNameExtensionFilter("PDF document (*.pdf)", "pdf")
+                : new FileNameExtensionFilter("Word document (*.docx)", "docx"));
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        File target = withExtension(chooser.getSelectedFile(), name.endsWith(".pdf") ? ".pdf" : ".docx");
+        if (target.exists() && JOptionPane.showConfirmDialog(this, "Replace " + target.getName() + "?", "Confirm overwrite", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+        try {
+            Files.write(target.toPath(), resume.getContent());
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Could not save the resume: " + e.getMessage());
+        }
+        app.auditLogger().log(currentUser.getEmail(), "SAVED applicant resume for application #" + application.getId() + " (GUI)");
+        JOptionPane.showMessageDialog(this, "Resume saved to:\n" + target.getAbsolutePath(), "Resume downloaded", JOptionPane.INFORMATION_MESSAGE);
     }
 
     private JPanel usersPage() {
